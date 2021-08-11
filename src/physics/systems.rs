@@ -352,7 +352,7 @@ pub fn step_world_system<UserData: 'static + WorldQuery>(
 
 #[cfg(feature = "dim2")]
 pub(crate) fn sync_transform(pos: &Isometry<f32>, scale: f32, transform: &mut Transform) {
-    let (tra, rot) = (*pos).into();
+    let (tra, rot): (Vec3, Quat) = (*pos).into();
     // Do not touch the 'z' part of the translation, used in Bevy for 2d layering
     transform.translation.x = tra.x * scale;
     transform.translation.y = tra.y * scale;
