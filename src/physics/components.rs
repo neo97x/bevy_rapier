@@ -111,6 +111,7 @@ pub enum ColliderPositionSync {
     // Right now, there is only discrete for colliders.
     // We may add more modes in the future.
     Discrete,
+    DiscreteWithoutRotation,
 }
 
 impl Default for RigidBodyPositionSync {

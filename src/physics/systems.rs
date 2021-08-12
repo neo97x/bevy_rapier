@@ -351,19 +351,33 @@ pub fn step_world_system<UserData: 'static + WorldQuery>(
 }
 
 #[cfg(feature = "dim2")]
-pub(crate) fn sync_transform(pos: &Isometry<f32>, scale: f32, transform: &mut Transform) {
+pub(crate) fn sync_transform(
+    pos: &Isometry<f32>,
+    scale: f32,
+    transform: &mut Transform,
+    sync_rotation: bool,
+) {
     let (tra, rot): (Vec3, Quat) = (*pos).into();
     // Do not touch the 'z' part of the translation, used in Bevy for 2d layering
     transform.translation.x = tra.x * scale;
     transform.translation.y = tra.y * scale;
-    transform.rotation = rot;
+    if sync_rotation {
+        transform.rotation = rot;
+    }
 }
 
 #[cfg(feature = "dim3")]
-pub(crate) fn sync_transform(pos: &Isometry<f32>, scale: f32, transform: &mut Transform) {
+pub(crate) fn sync_transform(
+    pos: &Isometry<f32>,
+    scale: f32,
+    transform: &mut Transform,
+    sync_rotation: bool,
+) {
     let (tra, rot) = (*pos).into();
     transform.translation = tra * scale;
-    transform.rotation = rot;
+    if sync_rotation {
+        transform.rotation = rot;
+    }
 }
 
 /// System responsible for writing the rigid-bodies positions into the Bevy translation and rotation components.
@@ -406,9 +420,12 @@ pub fn sync_transforms(
             .unwrap_or(Transform::identity());
 
         match sync_mode {
-            RigidBodyPositionSync::Discrete => {
-                sync_transform(&rb_pos.position, configuration.scale, &mut new_transform)
-            }
+            RigidBodyPositionSync::Discrete => sync_transform(
+                &rb_pos.position,
+                configuration.scale,
+                &mut new_transform,
+                true,
+            ),
             RigidBodyPositionSync::Interpolated { prev_pos } => {
                 // Predict position and orientation at render time
                 let mut pos = rb_pos.position;
@@ -419,7 +436,7 @@ pub fn sync_transforms(
                     pos = prev_pos.unwrap().lerp_slerp(&rb_pos.position, alpha);
                 }
 
-                sync_transform(&pos, configuration.scale, &mut new_transform);
+                sync_transform(&pos, configuration.scale, &mut new_transform, true);
             }
         }
 
@@ -435,7 +452,7 @@ pub fn sync_transforms(
     }
 
     // Sync colliders.
-    for (entity, co_pos, _, co_parent, mut transform, mut global_transform) in
+    for (entity, co_pos, sync_mode, co_parent, mut transform, mut global_transform) in
         sync_query.q1_mut().iter_mut()
     {
         let mut new_transform = transform
@@ -446,11 +463,24 @@ pub fn sync_transforms(
         if let Some(co_parent) = co_parent {
             if rigid_body_sync_mode.get(co_parent.handle.entity()).is_ok() {
                 // Sync the relative position instead of the actual collider position.
-                sync_transform(
-                    &co_parent.pos_wrt_parent,
-                    configuration.scale,
-                    &mut new_transform,
-                );
+                match sync_mode {
+                    ColliderPositionSync::Discrete => {
+                        sync_transform(
+                            &co_parent.pos_wrt_parent,
+                            configuration.scale,
+                            &mut new_transform,
+                            true,
+                        );
+                    }
+                    ColliderPositionSync::DiscreteWithoutRotation => {
+                        sync_transform(
+                            &co_parent.pos_wrt_parent,
+                            configuration.scale,
+                            &mut new_transform,
+                            false,
+                        );
+                    }
+                }
 
                 if let Some(transform) = transform.as_deref_mut() {
                     *transform = new_transform;
@@ -463,7 +493,14 @@ pub fn sync_transforms(
         }
 
         // Otherwise, sync the global position of the collider.
-        sync_transform(&co_pos, configuration.scale, &mut new_transform);
+        match sync_mode {
+            ColliderPositionSync::Discrete => {
+                sync_transform(&co_pos, configuration.scale, &mut new_transform, true);
+            }
+            ColliderPositionSync::DiscreteWithoutRotation => {
+                sync_transform(&co_pos, configuration.scale, &mut new_transform, false);
+            }
+        }
 
         if let Some(transform) = transform.as_deref_mut() {
             *transform = new_transform;
